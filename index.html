@@ -1,0 +1,134 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import { CheckCircle2, CircleAlert, Trophy, CalendarDays, TrendingUp, Trash2, Pencil, Save, X } from "lucide-react";
+
+// ====== 設定 ======
+const START_DATE = new Date("2025-09-05");
+const END_DATE = new Date("2025-11-30");
+const GOAL = 1_530_000;
+const DAILY_PACE_GUIDE = 17_600;
+const STORAGE_KEY = "earnings-2025-09-05_11-30";
+
+// ====== ユーティリティ ======
+const fmtYen = (n) => n.toLocaleString("ja-JP", { maximumFractionDigits: 0 });
+const clampDate = (d) => {
+  if (d < START_DATE) return START_DATE;
+  if (d > END_DATE) return END_DATE;
+  return d;
+};
+const toDateStr = (d) => d.toISOString().slice(0, 10);
+const fromDateStr = (s) => new Date(s + "T00:00:00");
+const daysBetweenInclusive = (a, b) => Math.floor((fromDateStr(toDateStr(b)) - fromDateStr(toDateStr(a))) / (1000*60*60*24)) + 1;
+
+// ====== メインコンポーネント ======
+export default function EarningsTracker() {
+  // localStorage から読み込み
+  const [entries, setEntries] = useState(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // 日付初期値は最後に入力した日付、なければ今日
+  const [dateStr, setDateStr] = useState(() => {
+    const keys = Object.keys(entries);
+    return keys.length ? keys.sort().pop() : toDateStr(new Date());
+  });
+
+  const [amount, setAmount] = useState("");
+  const [editingDate, setEditingDate] = useState(null);
+
+  // 保存
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  }, [entries]);
+
+  // 集計
+  const totalDays = daysBetweenInclusive(START_DATE, END_DATE);
+  const elapsedDays = useMemo(() => {
+    const now = new Date();
+    const until = clampDate(now);
+    return daysBetweenInclusive(START_DATE, until);
+  }, []);
+
+  const earnedTotal = useMemo(() => Object.values(entries).reduce((a, b) => a + (Number(b) || 0), 0), [entries]);
+  const targetByGuide = DAILY_PACE_GUIDE * elapsedDays;
+  const targetByGoal = Math.ceil(GOAL * (elapsedDays / totalDays));
+
+  const remaining = Math.max(GOAL - earnedTotal, 0);
+  const daysLeft = Math.max(daysBetweenInclusive(clampDate(new Date()), END_DATE), 0);
+  const neededPerDay = daysLeft > 0 ? Math.ceil(remaining / daysLeft) : remaining;
+
+  const onTrackGuide = earnedTotal >= targetByGuide;
+  const progress = Math.min(earnedTotal / GOAL, 1);
+
+  const rows = useMemo(() => {
+    const list = Object.entries(entries)
+      .map(([d, v]) => ({ date: d, amount: Number(v) || 0 }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return list;
+  }, [entries]);
+
+  const handleSave = () => {
+    if (!dateStr) return;
+    const v = Number(amount);
+    if (Number.isNaN(v) || v < 0) return alert("金額は0以上の数字で入力してください");
+    setEntries((prev) => ({ ...prev, [dateStr]: v }));
+    setAmount("");
+    setEditingDate(null);
+  };
+
+  const startEdit = (d) => {
+    setEditingDate(d);
+    setDateStr(d);
+    setAmount(String(entries[d] ?? ""));
+  };
+
+  const cancelEdit = () => {
+    setEditingDate(null);
+    const keys = Object.keys(entries);
+    setDateStr(keys.length ? keys.sort().pop() : toDateStr(new Date()));
+    setAmount("");
+  };
+
+  const remove = (d) => {
+    if (!confirm(`${d} の記録を削除しますか？`)) return;
+    setEntries((prev) => {
+      const next = { ...prev };
+      delete next[d];
+      return next;
+    });
+  };
+
+  const message = onTrackGuide
+    ? "いいペース！この調子で積み上げよう！"
+    : daysLeft > 0
+      ? `あと${daysLeft}日で${fmtYen(remaining)}円。1日 ${fmtYen(neededPerDay)} 円で追いつける！`
+      : remaining === 0
+        ? "達成おめでとう！🥳"
+        : "期間終了。おつかれさま！次の作戦を立てよう。";
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-5 md:p-10">
+      <div className="max-w-5xl mx-auto grid gap-6">
+        {/* ヘッダー */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold">デイリー収入トラッカー</h1>
+            <p className="text-sm md:text-base text-slate-600">期間: {toDateStr(START_DATE)} 〜 {toDateStr(END_DATE)} / 目標: {fmtYen(GOAL)} 円 / 目安ペース: {fmtYen(DAILY_PACE_GUIDE)} 円/日</p>
+          </div>
+          <div className="hidden md:block rounded-2xl px-4 py-2 bg-white shadow flex items-center gap-2">
+            <CalendarDays className="w-5 h-5" />
+            <span>{totalDays}日間</span>
+          </div>
+        </div>
+
+        {/* サマリーカード・プログレスバー・フォーム・一覧は前回コードと同じ */}
+
+      </div>
+    </div>
+  );
+}
